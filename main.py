@@ -57,4 +57,28 @@ def get_status(emp_id, base):
         return "N6" if is_sunday else "NP"
 
     if emp_id in a_ids:
-        if is_s
+        if is_sunday:
+            return "D6" if base=="D" else "N6"
+        return "DA" if base=="D" else "NA"
+
+    if is_sunday:
+        return "WO"
+
+    return "DP" if base=="D" else "NP"
+
+# ===== BUTTON =====
+if st.button("🚀 Generate Attendance"):
+
+    df["Status"] = df.apply(lambda r: get_status(r["Emp ID"], r.get("Base","D")), axis=1)
+
+    df.insert(0, "Srl No", range(1, len(df)+1))
+
+    st.success("✅ Done")
+    st.dataframe(df, use_container_width=True)
+
+    # Download
+    file = "attendance.xlsx"
+    df.to_excel(file, index=False)
+
+    with open(file, "rb") as f:
+        st.download_button("📥 Download Report", f, file_name=file)
