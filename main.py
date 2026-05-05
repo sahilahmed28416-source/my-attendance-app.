@@ -1,84 +1,91 @@
-import streamlit as st
-import pandas as pd
-import os
-from datetime import datetime
-
-st.set_page_config(page_title="Safe Tech Attendance Pro", layout="wide")
-
-DB_FILE = "worker_database.csv"
-
 # =========================
-# 🔥 STATUS LOGIC (FINAL)
+# MAIN UI (FIXED)
 # =========================
-def get_status(emp_id, base_status, daily_entries, is_sunday):
 
-    emp_id = str(emp_id).strip().upper()
+st.title("🏗 SAFETECH ATTENDANCE SYSTEM")
 
-    entry = None
-    for e in daily_entries:
-        e = str(e).upper()
-        if emp_id in e:
-            entry = e
-            break
+month = st.selectbox("Select Month", [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December"
+])
 
-    # Special
-    if base_status in ["R", "T", "ST"]:
-        return base_status
+day = st.number_input("Select Day", 1, 31, 1)
+is_sunday = st.checkbox("Sunday / WO")
 
-    # Leave logic
-    if base_status == "L":
-        if entry:
-            if "D" in entry: return "DP"
-            if "N" in entry: return "NP"
-            if "DA" in entry: return "DA"
-            if "NA" in entry: return "NA"
-            if "A" in entry: return "NA"
-        return "L"
+st.subheader("📝 Daily Entry")
 
-    # Detect entry
-    if entry:
-        if "D" in entry:
-            return "D6" if is_sunday else "DP"
+col1, col2, col3 = st.columns(3)
 
-        if "N" in entry:
-            return "N6" if is_sunday else "NP"
+with col1:
+    day_ids = st.text_area("Day Shift IDs (D)")
 
-        if "A" in entry or entry == emp_id:
-            return "DA" if base_status == "D" else "NA"
+with col2:
+    night_ids = st.text_area("Night Shift IDs (N)")
 
-    # No entry
-    if is_sunday:
-        return "WO"
+with col3:
+    absent_ids = st.text_area("Absent IDs (A)")
 
-    return "DP" if base_status == "D" else "NP"
+uploaded_file = st.sidebar.file_uploader("Upload Excel", type=["xlsx"])
 
 
 # =========================
-# SIDEBAR
+# LOAD DATA
 # =========================
-st.sidebar.header("➕ Add Worker")
 
-f_name = st.sidebar.text_input("First Name")
-s_name = st.sidebar.text_input("Second Name")
-w_id = st.sidebar.text_input("Worker ID")
-w_desig = st.sidebar.text_input("Designation")
-w_dept = st.sidebar.text_input("Department")
-w_doj = st.sidebar.date_input("Joining Date", datetime.now())
-w_base = st.sidebar.selectbox("Base Status", ["D", "N", "L", "R", "T", "ST"])
+if uploaded_file:
+    df = pd.read_excel(uploaded_file, sheet_name=0, skiprows=12)
+    df.columns = df.columns.astype(str).str.strip()
+else:
+    # Dummy data (so UI works)
+    df = pd.DataFrame({
+        "Emp ID": ["T00001","T00002","T00003"],
+        "Emp Name": ["Test 1","Test 2","Test 3"],
+        "Designation": ["Worker","Worker","Worker"],
+        "Department": ["Prod","Prod","Prod"],
+        "Joining": ["01-01-2024","01-01-2024","01-01-2024"],
+        "Base": ["D","N","D"]
+    })
 
-if st.sidebar.button("Save Worker"):
-    if w_id and f_name:
-        new_data = pd.DataFrame([[w_id, f"{f_name} {s_name}", w_desig, w_dept, w_doj, w_base]],
-            columns=["Emp ID", "Emp Name", "Designation", "Department", "Joining", "Base"])
 
-        if os.path.exists(DB_FILE):
-            new_data.to_csv(DB_FILE, mode='a', header=False, index=False)
-        else:
-            new_data.to_csv(DB_FILE, index=False)
+# =========================
+# PROCESS BUTTON
+# =========================
 
-        st.sidebar.success("Worker Saved!")
-    else:
-        st.sidebar.error("ID & Name required")
+if st.button("🚀 Generate Attendance"):
 
-st.sidebar.divider()
-uploaded
+    daily_entries = []
+
+    if day_ids:
+        for i in day_ids.split(","):
+            daily_entries.append(f"{i.strip()}-D")
+
+    if night_ids:
+        for i in night_ids.split(","):
+            daily_entries.append(f"{i.strip()}-N")
+
+    if absent_ids:
+        for i in absent_ids.split(","):
+            daily_entries.append(f"{i.strip()}")
+
+    col_name = f"{month[:3]}-{day}"
+
+    df[col_name] = df.apply(
+        lambda row: get_status(
+            row.get("Emp ID"),
+            row.get("Base", "D"),
+            daily_entries,
+            is_sunday
+        ),
+        axis=1
+    )
+
+    df.insert(0, "Srl No", range(1, len(df)+1))
+
+    st.success("✅ Attendance Generated")
+    st.dataframe(df, use_container_width=True)
+
+    file = f"{month}_Attendance.xlsx"
+    df.to_excel(file, index=False)
+
+    with open(file, "rb") as f:
+        st.download_button("📥 Download", f)
