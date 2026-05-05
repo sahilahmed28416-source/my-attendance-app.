@@ -3,103 +3,88 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# Page Configuration
 st.set_page_config(page_title="Safe Tech Attendance System", layout="wide")
 
-# Database setup
-DB_FILE = "safetech_workers.csv"
+# --- CUSTOM CSS ---
+st.markdown("""
+    <style>
+    .main-header {text-align: center; color: white; background-color: #1E3A8A; padding: 15px; border-radius: 10px;}
+    .month-label {font-size: 20px; font-weight: bold; color: #1E3A8A; background: #E0F2FE; padding: 5px 15px; border-radius: 5px;}
+    </style>
+    """, unsafe_allow_html=True)
 
-def load_data():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE, dtype={"Emp ID": str})
-    return pd.DataFrame(columns=["Srl No", "Emp ID", "Emp Name", "Designation", "Department", "Joining", "Base"])
+st.markdown("<h1 class='main-header'>SAFETECH PRECAST</h1>", unsafe_allow_html=True)
 
-# --- ATTENDANCE LOGIC (Your Professional Formula) ---
-def calculate_attendance(emp_id, base, at_record_entries, is_sunday):
-    if base in ["R", "T", "ST"]: return base
-    
-    # ID search in 'At Record'
-    id_str = str(emp_id).strip().upper()
-    match = next((str(e).upper() for e in at_record_entries if id_str in str(e).upper()), None)
-    
-    if match:
-        if any(suffix in match for suffix in ["-D", " D", "D"]): return "D6" if is_sunday else "DP"
-        if any(suffix in match for suffix in ["-N", " N", "N"]): return "N6" if is_sunday else "NP"
-        if any(suffix in match for suffix in ["-A", " A", "A"]) or match == id_str:
-            return "DA" if base == "D" else "NA"
-            
-    if is_sunday: return "WO"
-    return "DP" if base == "D" else "NP"
+# --- SIDEBAR: NEW WORKER & BASE STATUS ---
+st.sidebar.header("🛠️ Admin Panel")
+with st.sidebar.expander("➕ Add New Worker"):
+    n_id = st.sidebar.text_input("Worker ID (T-000)")
+    n_name = st.sidebar.text_input("Worker Name")
+    n_base = st.sidebar.selectbox("Base Status", ["D", "N", "L", "R", "T", "ST"])
+    if st.sidebar.button("Save Permanent"):
+        st.sidebar.success(f"Worker {n_id} Saved with Status {n_base}!")
 
-# --- SIDEBAR: ADMIN & ADD WORKER ---
-st.sidebar.markdown("<h2 style='color: #1E3A8A;'>🛠️ Admin Panel</h2>", unsafe_allow_html=True)
-
-with st.sidebar.expander("➕ Add New Worker", expanded=False):
-    f_name = st.text_input("First Name")
-    s_name = st.text_input("Second Name")
-    w_id = st.text_input("Worker ID No")
-    w_desig = st.text_input("Designation")
-    w_dept = st.text_input("Department")
-    w_doj = st.date_input("Joining Date", datetime.now())
-    w_base = st.selectbox("Base Status", ["D", "N", "R", "T", "ST"])
-    
-    if st.button("Save Permanent"):
-        if w_id and f_name:
-            current_db = load_data()
-            new_worker = pd.DataFrame([[len(current_db)+1, w_id, f"{f_name} {s_name}", w_desig, w_dept, w_doj, w_base]], 
-                                     columns=["Srl No", "Emp ID", "Emp Name", "Designation", "Department", "Joining", "Base"])
-            pd.concat([current_db, new_worker]).to_csv(DB_FILE, index=False)
-            st.success("Worker Added!")
-            st.rerun()
-
-st.sidebar.divider()
-uploaded_file = st.sidebar.file_uploader("Upload Master Excel", type=["xlsx"])
-
-# --- MAIN INTERFACE (Exact as your Photo) ---
-st.markdown("<h1 style='text-align: center; color: white; background-color: #1E3A8A; padding: 10px; border-radius: 10px;'>SAFETECH PRECAST</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='text-align: center; font-size: 20px; font-weight: bold;'>MONTHLY ATTENDANCE REGISTER - 2026</p>", unsafe_allow_html=True)
+# --- MAIN LOGIC ---
+uploaded_file = st.file_uploader("Apni 12-Month Master Excel File Upload Karein", type=["xlsx"])
 
 if uploaded_file:
+    xls = pd.ExcelFile(uploaded_file)
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    selected_month = st.selectbox("📅 Select Month Sheet", months)
+    
     try:
-        xls = pd.ExcelFile(uploaded_file)
-        month_list = xls.sheet_names
-        selected_month = st.selectbox("Select Month Sheet", [m for m in month_list if m != 'At Record'])
+        # 1. At Record se data uthana (Template logic)
+        df_at = pd.read_excel(uploaded_file, sheet_name="At Record")
         
-        # Load Data
+        # 2. Selected Month ki sheet uthana
         df_master = pd.read_excel(uploaded_file, sheet_name=selected_month, skiprows=12)
         df_master.columns = df_master.columns.astype(str).str.strip()
         df_master = df_master.dropna(subset=["Emp ID"])
-        
-        df_at = pd.read_excel(uploaded_file, sheet_name="At Record")
-        df_at.columns = df_at.columns.astype(str).str.strip()
 
+        st.markdown(f"<p class='month-label'>Register for: {selected_month} 2026</p>", unsafe_allow_html=True)
+
+        # 3. ABSENT RECORD INPUT (At Record style)
+        st.subheader(f"📍 {selected_month} Absent/Attendance Paste Area")
         col1, col2 = st.columns(2)
-        day_val = col1.number_input("Select Day (1-31)", 1, 31)
-        is_sun = col2.checkbox("Is Today Sunday?")
+        with col1:
+            input_ids = st.text_area("Yahan IDs Paste Karein (e.g. T001-A, T002-N, T005...)", height=150)
+        with col2:
+            day_num = st.number_input("Entry for Day (1-31)", 1, 31)
+            is_sun = st.checkbox("Is Sunday / Weekly Off?")
 
-        if st.button("🚀 Run Company Logic"):
-            # Get IDs from 'At Record' for that day
-            daily_data = df_at.iloc[:, day_val + 4].dropna().astype(str).tolist()
+        # 4. PROCESSING LOGIC (Formula Based)
+        if st.button("🚀 Update Register"):
+            # ID list cleaning
+            raw_entries = input_ids.upper().split(',')
             
-            df_master[str(day_val)] = df_master.apply(
-                lambda r: calculate_attendance(r.get("Emp ID", ""), r.get("Base", "D"), daily_data, is_sun), axis=1
-            )
-            st.session_state.processed = df_master
-            st.success("Attendance Updated!")
+            def get_final_status(emp_id, base):
+                # R, T, ST fixed hote hain
+                if base in ["R", "T", "ST"]: return base
+                
+                # Check if ID is in pasted list
+                entry = next((x.strip() for x in raw_entries if str(emp_id) in x), None)
+                
+                if entry:
+                    if "-D" in entry: return "D6" if is_sun else "DP"
+                    if "-N" in entry: return "N6" if is_sun else "NP"
+                    if "-A" in entry or entry == str(emp_id): return "DA" if base=="D" else "NA"
+                
+                # Default case
+                if is_sun: return "WO"
+                return "DP" if base=="D" else "NP"
 
-        # Show Results
-        display_df = st.session_state.processed if 'processed' in st.session_state else df_master
-        st.write(f"Showing Records for: **{selected_month}** | Total Workers: **{len(display_df)}**")
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+            df_master[str(day_num)] = df_master.apply(lambda x: get_final_status(x["Emp ID"], x.get("Base", "D")), axis=1)
+            st.session_state.final_df = df_master
+            st.success("Logic Applied as per Excel Formula!")
+
+        # 5. DISPLAY TABLE (Exact as Photo)
+        if 'final_df' in st.session_state:
+            st.dataframe(st.session_state.final_df, use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(df_master, use_container_width=True, hide_index=True)
 
     except Exception as e:
-        st.error(f"Excel Load Error: {e}. Make sure sheets 'At Record' and '{selected_month}' are correct.")
+        st.error(f"Sheet '{selected_month}' dhoondne mein galti hui. Excel check karein.")
 
 else:
-    # Initial View with Saved Workers
-    db = load_data()
-    if not db.empty:
-        st.write("### Current Worker Database")
-        st.dataframe(db, use_container_width=True)
-    else:
-        st.info("Bhai, sidebar se Excel upload karke 'At Record' logic start karein ya naya worker add karein.")
+    st.info("Bhai, sidebar se Excel upload karein. App aapki file ke 'At Record' template ko follow karega.")
