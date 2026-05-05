@@ -1,90 +1,79 @@
 import streamlit as st
 import pandas as pd
-import os
-from datetime import datetime
+import io
 
-st.set_page_config(page_title="Safe Tech Attendance System", layout="wide")
+st.set_page_config(page_title="SafeTech Attendance Pro", layout="wide")
 
-# --- CUSTOM CSS ---
+# --- UI Styling ---
 st.markdown("""
     <style>
-    .main-header {text-align: center; color: white; background-color: #1E3A8A; padding: 15px; border-radius: 10px;}
-    .month-label {font-size: 20px; font-weight: bold; color: #1E3A8A; background: #E0F2FE; padding: 5px 15px; border-radius: 5px;}
+    .main-header {text-align: center; color: white; background-color: #003366; padding: 20px; border-radius: 15px; margin-bottom: 20px;}
+    .stButton>button {width: 100%; background-color: #003366; color: white; border-radius: 10px; height: 3em;}
     </style>
+    <h1 class='main-header'>SAFETECH PRECAST - ATTENDANCE SYSTEM</h1>
     """, unsafe_allow_html=True)
 
-st.markdown("<h1 class='main-header'>SAFETECH PRECAST</h1>", unsafe_allow_html=True)
-
-# --- SIDEBAR: NEW WORKER & BASE STATUS ---
-st.sidebar.header("🛠️ Admin Panel")
-with st.sidebar.expander("➕ Add New Worker"):
-    n_id = st.sidebar.text_input("Worker ID (T-000)")
-    n_name = st.sidebar.text_input("Worker Name")
-    n_base = st.sidebar.selectbox("Base Status", ["D", "N", "L", "R", "T", "ST"])
-    if st.sidebar.button("Save Permanent"):
-        st.sidebar.success(f"Worker {n_id} Saved with Status {n_base}!")
-
-# --- MAIN LOGIC ---
-uploaded_file = st.file_uploader("Apni 12-Month Master Excel File Upload Karein", type=["xlsx"])
+# --- App Logic ---
+uploaded_file = st.file_uploader("Upload your Master Excel File", type=["xlsx"])
 
 if uploaded_file:
+    # 1. Load the Excel
     xls = pd.ExcelFile(uploaded_file)
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    selected_month = st.selectbox("📅 Select Month Sheet", months)
+    months = xls.sheet_names
+    selected_month = st.sidebar.selectbox("📅 Select Month", [m for m in months if m != "At Record"])
     
-    try:
-        # 1. At Record se data uthana (Template logic)
-        df_at = pd.read_excel(uploaded_file, sheet_name="At Record")
+    # 2. Read Data (Skip summary rows to reach headers at Row 13)
+    # Note: Excel indexing starts at 0, Row 13 in Excel is index 12
+    df = pd.read_excel(uploaded_file, sheet_name=selected_month, skiprows=12)
+    
+    # Clean column names
+    df.columns = [str(c).strip() for c in df.columns]
+    df = df.dropna(subset=["Emp ID"]) # Faltu rows hatane ke liye
+
+    # --- Sidebar Controls ---
+    st.sidebar.subheader("📍 Attendance Input")
+    target_date = st.sidebar.selectbox("Target Date", [str(i) for i in range(1, 32)])
+    status_type = st.sidebar.radio("Attendance Status", ["DP (Day Present)", "NP (Night Present)", "DA (Day Absent)", "NA (Night Absent)", "L (Leave)", "ST", "T"])
+    
+    id_input = st.sidebar.text_area("Paste Employee IDs (Space or Comma separated)")
+
+    if st.sidebar.button("Update Attendance"):
+        # Process IDs
+        input_ids = [id.strip().upper() for id in id_input.replace(',', ' ').split()]
         
-        # 2. Selected Month ki sheet uthana
-        df_master = pd.read_excel(uploaded_file, sheet_name=selected_month, skiprows=12)
-        df_master.columns = df_master.columns.astype(str).str.strip()
-        df_master = df_master.dropna(subset=["Emp ID"])
-
-        st.markdown(f"<p class='month-label'>Register for: {selected_month} 2026</p>", unsafe_allow_html=True)
-
-        # 3. ABSENT RECORD INPUT (At Record style)
-        st.subheader(f"📍 {selected_month} Absent/Attendance Paste Area")
-        col1, col2 = st.columns(2)
-        with col1:
-            input_ids = st.text_area("Yahan IDs Paste Karein (e.g. T001-A, T002-N, T005...)", height=150)
-        with col2:
-            day_num = st.number_input("Entry for Day (1-31)", 1, 31)
-            is_sun = st.checkbox("Is Sunday / Weekly Off?")
-
-        # 4. PROCESSING LOGIC (Formula Based)
-        if st.button("🚀 Update Register"):
-            # ID list cleaning
-            raw_entries = input_ids.upper().split(',')
-            
-            def get_final_status(emp_id, base):
-                # R, T, ST fixed hote hain
-                if base in ["R", "T", "ST"]: return base
-                
-                # Check if ID is in pasted list
-                entry = next((x.strip() for x in raw_entries if str(emp_id) in x), None)
-                
-                if entry:
-                    if "-D" in entry: return "D6" if is_sun else "DP"
-                    if "-N" in entry: return "N6" if is_sun else "NP"
-                    if "-A" in entry or entry == str(emp_id): return "DA" if base=="D" else "NA"
-                
-                # Default case
-                if is_sun: return "WO"
-                return "DP" if base=="D" else "NP"
-
-            df_master[str(day_num)] = df_master.apply(lambda x: get_final_status(x["Emp ID"], x.get("Base", "D")), axis=1)
-            st.session_state.final_df = df_master
-            st.success("Logic Applied as per Excel Formula!")
-
-        # 5. DISPLAY TABLE (Exact as Photo)
-        if 'final_df' in st.session_state:
-            st.dataframe(st.session_state.final_df, use_container_width=True, hide_index=True)
+        if target_date in df.columns:
+            # Update matching IDs
+            mask = df['Emp ID'].astype(str).str.upper().isin(input_ids)
+            df.loc[mask, target_date] = status_type.split(' ')[0]
+            st.success(f"Success! Updated {mask.sum()} workers for Date {target_date}")
         else:
-            st.dataframe(df_master, use_container_width=True, hide_index=True)
+            st.error(f"Date '{target_date}' column not found in this sheet!")
 
-    except Exception as e:
-        st.error(f"Sheet '{selected_month}' dhoondne mein galti hui. Excel check karein.")
+    # --- Dashboard Summary ---
+    st.subheader(f"📊 Live Preview: {selected_month} 2026")
+    
+    # Simple Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    if target_date in df.columns:
+        col1.metric("Total Workers", len(df))
+        col2.metric(f"Present (D/N) on {target_date}", df[target_date].isin(['DP', 'NP']).sum())
+        col3.metric(f"Absent (DA/NA) on {target_date}", df[target_date].isin(['DA', 'NA']).sum())
+        col4.metric("On Leave", df[target_date].isin(['L']).sum())
+
+    # --- Interactive Table ---
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # --- Export ---
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name=selected_month)
+    
+    st.download_button(
+        label="📥 Download Updated Excel",
+        data=buffer.getvalue(),
+        file_name=f"Updated_Attendance_{selected_month}.xlsx",
+        mime="application/vnd.ms-excel"
+    )
 
 else:
-    st.info("Bhai, sidebar se Excel upload karein. App aapki file ke 'At Record' template ko follow karega.")
+    st.warning("Bhai, pehle apni Excel file upload karo.")
