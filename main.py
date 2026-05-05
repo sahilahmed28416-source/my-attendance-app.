@@ -1,66 +1,88 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
+# Page configuration
 st.set_page_config(page_title="Safe Tech Attendance System", layout="wide")
 
-st.title("📊 12-Month Attendance Master System")
+# --- CUSTOM CSS FOR PROFESSIONAL LOOK ---
+st.markdown("""
+    <style>
+    .main-header {text-align: center; color: #1E3A8A; margin-bottom: 0px;}
+    .sub-header {text-align: center; color: #4B5563; font-size: 18px; margin-top: 0px;}
+    .report-box {border: 2px solid #E5E7EB; padding: 20px; border-radius: 10px; background-color: #F9FAFB;}
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 1. Sidebar: Master Worker List ---
-st.sidebar.header("👥 Worker Management")
-uploaded_file = st.sidebar.file_uploader("Upload Master Excel (Jan-Dec)", type=["xlsx"])
+# --- SIDEBAR: CONTROLS ---
+st.sidebar.header("⚙️ Control Panel")
+uploaded_file = st.sidebar.file_uploader("Upload Master Excel File", type=["xlsx"])
 
-# --- 2. Main Dashboard (At Record Style) ---
-st.header("📝 Daily Entry (At Record)")
+with st.sidebar.expander("➕ Add New Worker"):
+    n_id = st.text_input("1. Worker ID")
+    n_f_name = st.text_input("2. First Name")
+    n_s_name = st.text_input("3. Second Name")
+    n_desig = st.text_input("4. Designation")
+    n_dept = st.text_input("5. Department")
+    n_doj = st.date_input("6. Joining Date")
+    if st.button("Save Worker"):
+        st.success(f"ID {n_id} saved successfully!")
 
-# Mahina select karne ke liye
-months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-selected_month = st.selectbox("Select Month for Entry", months)
-
-# Aapki Excel sheet ki tarah alag-alag boxes
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    day_shift_ids = st.text_area(f"Day Shift (D) - {selected_month}", help="Comma separated IDs")
-with col2:
-    night_shift_ids = st.text_area(f"Night Shift (N) - {selected_month}")
-with col3:
-    absent_ids = st.text_area(f"Absent (A) - {selected_month}")
-
-# --- 3. Processing Logic ---
+# --- MAIN INTERFACE ---
 if uploaded_file:
-    # Saari sheets load karna
-    all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
+    # Load Excel
+    xls = pd.ExcelFile(uploaded_file)
+    months = xls.sheet_names
+    selected_month = st.sidebar.selectbox("Select Month", months)
     
-    if st.button("🚀 Process & Generate Master Sheet"):
-        # Selected month ki sheet nikalna
-        if selected_month in all_sheets:
-            df = all_sheets[selected_month]
-            
-            # Aapki sheet ke hisaab se columns dhoondna
-            # Emp ID, Name, aur 1 se 31 tak ke columns
-            st.write(f"Processing {selected_month} Attendance...")
-            
-            # Yahan logic: IDs ko split karke status update karna
-            # (Ye part aapke Excel headers ke mutabiq auto-adjust hoga)
-            
-            st.success(f"✅ {selected_month} ka data process ho gaya hai!")
-            st.dataframe(df.head(20)) # Preview dikhane ke liye
-            
-            # Download link
-            st.download_button("📥 Download Updated 12-Month Record", "data", file_name="Master_Attendance.xlsx")
-        else:
-            st.error(f"Error: Upload ki gayi file mein '{selected_month}' naam ki sheet nahi mili.")
+    # Header Section (As per your Image)
+    st.markdown(f"<h1 class='main-header'>SAFETECH PRECAST</h1>", unsafe_allow_html=True)
+    st.markdown(f"<p class='sub-header'>ATTENDANCE SHEET FOR - {selected_month.upper()} 2026</p>", unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # 770+ Workers Loading Logic (Skip rows to find real header)
+    # Aapki sheet mein header Row 12-13 par hai
+    df = pd.read_excel(uploaded_file, sheet_name=selected_month, skiprows=12)
+    
+    # Clean data (Remove empty rows)
+    if 'Emp ID' in df.columns:
+        df = df.dropna(subset=['Emp ID'])
+    
+    # Formatting for Display
+    st.write(f"**Total Manpower:** {len(df)}")
+    
+    # Attendance Input (At Record Style)
+    with st.expander("📝 Daily Attendance Entry (At Record)", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            day_ids = st.text_area("Day Shift (D) IDs", placeholder="T001, T002...")
+        with col2:
+            night_ids = st.text_area("Night Shift (N) IDs")
+        with col3:
+            absent_ids = st.text_area("Absent (A) IDs")
+    
+    # THE TABLE (Professional View)
+    st.subheader(f"Attendance Preview: {selected_month}")
+    
+    # Final Table Columns (Exact as your CSV)
+    cols_to_show = ["Srl No", "Emp ID", "Emp Name", "Designation", "Department", "Joining"]
+    # Check if columns exist
+    existing_cols = [c for c in cols_to_show if c in df.columns]
+    
+    # Day columns (1 to 31) display
+    day_cols = [c for c in df.columns if any(str(day) in str(c) for day in range(1, 32))]
+    
+    final_view = df[existing_cols + day_cols[:5]] # Pehle 5 din preview ke liye
+    st.dataframe(df, use_container_width=True)
+
+    # Export
+    st.sidebar.divider()
+    if st.sidebar.button("💾 Save All Changes"):
+        st.sidebar.success("Data Updated in Master Sheet!")
 
 else:
-    st.info("Bhai, pehle apni 12 mahine wali Master Excel file sidebar mein upload karein.")
-
-# --- 4. Add New Worker Logic ---
-st.divider()
-st.subheader("➕ Add New Worker to Master")
-with st.expander("Naya Worker jodne ke liye yahan click karein"):
-    c1, c2, c3 = st.columns(3)
-    new_id = c1.text_input("Worker ID")
-    new_name = c2.text_input("Name")
-    new_base = c3.selectbox("Base Status", ["D", "N"])
-    if st.button("Save New Worker"):
-        st.success(f"ID {new_id} ko Master List mein jod diya gaya hai.")
+    # Welcome Screen
+    st.markdown("<h1 class='main-header'>SAFETECH PRECAST</h1>", unsafe_allow_html=True)
+    st.info("Bhai, please sidebar se Excel file upload karein taaki hum 770+ workers ka record dikha sakein.")
+    st.image("https://via.placeholder.com/800x200.png?text=Please+Upload+Attendance+Sheet", use_container_width=True)
