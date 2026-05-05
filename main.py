@@ -1,79 +1,86 @@
 import streamlit as st
 import pandas as pd
+from openpyxl import load_workbook
 import io
 
-st.set_page_config(page_title="SafeTech Attendance Pro", layout="wide")
+st.set_page_config(page_title="SafeTech Master App", layout="wide")
 
-# --- UI Styling ---
-st.markdown("""
-    <style>
-    .main-header {text-align: center; color: white; background-color: #003366; padding: 20px; border-radius: 15px; margin-bottom: 20px;}
-    .stButton>button {width: 100%; background-color: #003366; color: white; border-radius: 10px; height: 3em;}
-    </style>
-    <h1 class='main-header'>SAFETECH PRECAST - ATTENDANCE SYSTEM</h1>
-    """, unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center; background-color:#1E3A8A; color:white; padding:10px; border-radius:10px;'>SAFETECH ATTENDANCE & HR SYSTEM</h1>", unsafe_allow_html=True)
 
-# --- App Logic ---
-uploaded_file = st.file_uploader("Upload your Master Excel File", type=["xlsx"])
+uploaded_file = st.file_uploader("Apni Master Excel File Upload Karein", type=["xlsx"])
 
 if uploaded_file:
-    # 1. Load the Excel
-    xls = pd.ExcelFile(uploaded_file)
-    months = xls.sheet_names
-    selected_month = st.sidebar.selectbox("📅 Select Month", [m for m in months if m != "At Record"])
+    # File ko memory mein load karna
+    file_bytes = uploaded_file.read()
     
-    # 2. Read Data (Skip summary rows to reach headers at Row 13)
-    # Note: Excel indexing starts at 0, Row 13 in Excel is index 12
-    df = pd.read_excel(uploaded_file, sheet_name=selected_month, skiprows=12)
-    
-    # Clean column names
-    df.columns = [str(c).strip() for c in df.columns]
-    df = df.dropna(subset=["Emp ID"]) # Faltu rows hatane ke liye
+    # 1. SIDEBAR: NEW WORKER ADD KARNA
+    st.sidebar.header("➕ Add New Worker")
+    with st.sidebar.form("worker_form"):
+        new_id = st.text_input("Worker ID (e.g. T00800)")
+        new_name = st.text_input("Full Name")
+        new_dept = st.text_input("Department")
+        new_desig = st.text_input("Designation")
+        submit_worker = st.form_submit_button("Add to All Sheets")
 
-    # --- Sidebar Controls ---
-    st.sidebar.subheader("📍 Attendance Input")
-    target_date = st.sidebar.selectbox("Target Date", [str(i) for i in range(1, 32)])
-    status_type = st.sidebar.radio("Attendance Status", ["DP (Day Present)", "NP (Night Present)", "DA (Day Absent)", "NA (Night Absent)", "L (Leave)", "ST", "T"])
-    
-    id_input = st.sidebar.text_area("Paste Employee IDs (Space or Comma separated)")
-
-    if st.sidebar.button("Update Attendance"):
-        # Process IDs
-        input_ids = [id.strip().upper() for id in id_input.replace(',', ' ').split()]
+    if submit_worker:
+        wb = load_workbook(io.BytesIO(file_bytes))
+        # Har month ki sheet mein naya worker add karna
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            # Pehli khali row dhoondna (Emp ID column mein)
+            last_row = ws.max_row + 1
+            ws.cell(row=last_row, column=2).value = new_id  # Column B: Emp ID
+            ws.cell(row=last_row, column=3).value = new_name # Column C: Name
+            ws.cell(row=last_row, column=4).value = new_desig # Column D: Desig
+            ws.cell(row=last_row, column=5).value = new_dept # Column E: Dept
         
-        if target_date in df.columns:
-            # Update matching IDs
-            mask = df['Emp ID'].astype(str).str.upper().isin(input_ids)
-            df.loc[mask, target_date] = status_type.split(' ')[0]
-            st.success(f"Success! Updated {mask.sum()} workers for Date {target_date}")
-        else:
-            st.error(f"Date '{target_date}' column not found in this sheet!")
+        # Save updated workbook back to memory
+        out = io.BytesIO()
+        wb.save(out)
+        file_bytes = out.getvalue()
+        st.sidebar.success(f"Worker {new_id} saari sheets mein add ho gaya!")
 
-    # --- Dashboard Summary ---
-    st.subheader(f"📊 Live Preview: {selected_month} 2026")
+    # 2. MAIN AREA: ATTENDANCE ENTRY (AT RECORD LOGIC)
+    wb_view = load_workbook(io.BytesIO(file_bytes))
+    months = [m for m in wb_view.sheetnames if m != "At Record"]
+    selected_month = st.selectbox("📅 Select Month", months)
     
-    # Simple Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    if target_date in df.columns:
-        col1.metric("Total Workers", len(df))
-        col2.metric(f"Present (D/N) on {target_date}", df[target_date].isin(['DP', 'NP']).sum())
-        col3.metric(f"Absent (DA/NA) on {target_date}", df[target_date].isin(['DA', 'NA']).sum())
-        col4.metric("On Leave", df[target_date].isin(['L']).sum())
+    st.subheader(f"📍 {selected_month} Attendance Entry")
+    col1, col2 = st.columns(2)
+    with col1:
+        ids_pasted = st.text_area("IDs Paste Karein (e.g. T00747, T00222)", height=150)
+    with col2:
+        target_day = st.number_input("Day (1-31)", 1, 31)
+        status_to_apply = st.selectbox("Status", ["DP", "NP", "DA", "NA", "L", "T", "ST", "WO"])
 
-    # --- Interactive Table ---
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    if st.button("🚀 Update Register"):
+        wb = load_workbook(io.BytesIO(file_bytes))
+        ws = wb[selected_month]
+        input_list = [i.strip().upper() for i in ids_pasted.replace(',', ' ').split()]
+        
+        # Column dhoondna (Jan/Feb sheets mein dates Column G se shuru hoti hain)
+        # 1st date Column G (index 7) par hai, toh Day 1 = Col 7, Day 2 = Col 8...
+        target_col = 6 + target_day 
+        
+        count = 0
+        for row in range(14, ws.max_row + 1): # Row 14 se data shuru hai
+            emp_id_cell = ws.cell(row=row, column=2).value # Column B is Emp ID
+            if str(emp_id_cell).strip().upper() in input_list:
+                ws.cell(row=row, column=target_col).value = status_to_apply
+                count += 1
+        
+        out = io.BytesIO()
+        wb.save(out)
+        file_bytes = out.getvalue()
+        st.success(f"Done! {count} workers ki attendance update ho gayi.")
 
-    # --- Export ---
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name=selected_month)
-    
+    # 3. DOWNLOAD UPDATED FILE
     st.download_button(
-        label="📥 Download Updated Excel",
-        data=buffer.getvalue(),
-        file_name=f"Updated_Attendance_{selected_month}.xlsx",
-        mime="application/vnd.ms-excel"
+        label="📥 Download Updated Master Excel",
+        data=file_bytes,
+        file_name="SafeTech_Master_Attendance.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 else:
-    st.warning("Bhai, pehle apni Excel file upload karo.")
+    st.info("Bhai, apni original 12-month wali Excel file upload karein.")
