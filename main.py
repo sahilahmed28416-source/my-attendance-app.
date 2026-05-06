@@ -1,181 +1,161 @@
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.styles import PatternFill, Alignment, Font
 import io
 from datetime import datetime
 
-# --- CONFIGURATION & UI ---
-st.set_page_config(page_title="SafeTech Precast - Workforce Pro", layout="wide")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="SafeTech Workforce Management", layout="wide")
 
-# Custom CSS for Professional Look
+# Custom Styling
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1E3A8A; color: white; }
-    .stSidebar { background-color: #e5eaf5; }
-    h1 { color: #1E3A8A; font-family: 'Arial'; border-bottom: 2px solid #1E3A8A; }
-    .status-box { padding: 10px; border-radius: 5px; margin: 5px 0; border-left: 5px solid #1E3A8A; background: white; }
+    .main { background-color: #f0f2f6; }
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #f0f2f6; border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; }
+    .stTabs [aria-selected="true"] { background-color: #1E3A8A; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# Logo Handling
+# Logo
 try:
-    # Bhai, file ka naam 'logo.jpg' ya jo bhi aapki image hai wo rakho
-    st.image("3810b91a7e82de2cb2273cb3494b93cbc0589111", width=120) 
+    st.sidebar.image("3810b91a7e82de2cb2273cb3494b93cbc0589111", width=150)
 except:
-    st.sidebar.warning("Logo image not found. Upload 'logo.jpg' in the directory.")
+    st.sidebar.title("SAFETECH PRECAST")
 
-st.title("🏗️ SAFETECH PRECAST - WORKFORCE MANAGEMENT")
+st.markdown("<h1 style='text-align:center; color:#1E3A8A;'>🏗️ SAFETECH ATTENDANCE & WORKER DATABASE</h1>", unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("📂 Upload SafeTech Master Attendance File (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload Master Excel File", type=["xlsx"])
 
 if uploaded_file:
     file_bytes = uploaded_file.read()
     
-    # --- 1. SIDEBAR: REGISTRATION & WORKER STATUS ---
-    st.sidebar.header("👤 Employee Management")
-    
-    with st.sidebar.expander("➕ Register New Employee", expanded=False):
-        with st.form("new_emp_form"):
-            e_id = st.text_input("Employee ID (T00...)")
-            e_fname = st.text_input("First Name")
-            e_lname = st.text_input("Last Name")
-            e_desig = st.text_input("Designation")
-            e_dept = st.text_input("Department")
-            # Base Status (Aapne poocha tha - Shift fixed rahegi yahan)
-            e_shift = st.selectbox("Assigned Base Shift", ["Day (D)", "Night (N)"])
-            e_join = st.date_input("Joining Date", datetime.now())
-            
-            submit_w = st.form_submit_button("Register in All Months")
+    # --- 1. WORKER MANAGEMENT (ADD OPTION WAPAS AA GAYA) ---
+    st.sidebar.header("⚙️ Admin Controls")
+    with st.sidebar.expander("➕ Add New Worker to System", expanded=False):
+        with st.form("add_worker_form"):
+            new_id = st.text_input("Employee ID (e.g. T00123)")
+            new_name = st.text_input("Full Name")
+            new_desig = st.text_input("Designation")
+            new_dept = st.text_input("Department")
+            new_shift = st.selectbox("Base Status (Shift)", ["Day Shift", "Night Shift"])
+            new_join = st.date_input("Joining Date", datetime.now())
+            submit_new = st.form_submit_button("Register Worker")
 
-    if submit_w and e_id:
-        with st.spinner("Updating all 12 sheets..."):
-            wb = load_workbook(io.BytesIO(file_bytes))
-            full_name = f"{e_fname} {e_lname}".strip()
-            shift_code = "D" if "Day" in e_shift else "N"
-            
-            for month_name in wb.sheetnames:
-                if month_name != "At Record":
-                    ws = wb[month_name]
-                    # Data Row 15 se shuru hai, check kar rahe hain next empty row
-                    target_row = 15
-                    while ws.cell(row=target_row, column=2).value is not None:
-                        target_row += 1
-                    
-                    # Writing Data
-                    ws.cell(row=target_row, column=1).value = target_row - 14 # Srl No
-                    ws.cell(row=target_row, column=2).value = e_id        # B: ID
-                    ws.cell(row=target_row, column=3).value = full_name   # C: Name
-                    ws.cell(row=target_row, column=4).value = e_desig     # D: Desig
-                    ws.cell(row=target_row, column=5).value = e_dept      # E: Dept
-                    ws.cell(row=target_row, column=6).value = e_join      # F: Joining
-                    # Column AL (38) ko hum Base Status shift ke liye use kar sakte hain
-                    ws.cell(row=target_row, column=38).value = shift_code 
-            
-            out = io.BytesIO()
-            wb.save(out)
-            file_bytes = out.getvalue()
-            st.sidebar.success(f"Employee {e_id} added successfully!")
-
-    # --- 2. MAIN INTERFACE: ATTENDANCE SYSTEM ---
-    xls = pd.ExcelFile(io.BytesIO(file_bytes))
-    month_list = [m for m in xls.sheet_names if m != "At Record"]
-    
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        st.info("📅 Select Context")
-        sel_month = st.selectbox("Select Month", month_list)
+    if submit_new and new_id:
+        wb = load_workbook(io.BytesIO(file_bytes))
+        for sheet in wb.sheetnames:
+            if sheet != "At Record":
+                ws = wb[sheet]
+                # Finding next empty row from Row 15
+                r = 15
+                while ws.cell(row=r, column=2).value is not None:
+                    r += 1
+                
+                ws.cell(row=r, column=1).value = r - 14      # Srl No
+                ws.cell(row=r, column=2).value = new_id      # Emp ID
+                ws.cell(row=r, column=3).value = new_name    # Name
+                ws.cell(row=r, column=4).value = new_desig   # Desig
+                ws.cell(row=r, column=5).value = new_dept    # Dept
+                ws.cell(row=r, column=6).value = new_join    # Joining
+                # Base Status Column (AL)
+                ws.cell(row=r, column=38).value = "D" if "Day" in new_shift else "N"
         
-        # Display Summary directly from the sheet (Rows 1-12)
-        st.markdown("<div class='status-box'><b>Summary View Active</b><br>Rows 1-12 are preserved.</div>", unsafe_allow_html=True)
+        out = io.BytesIO()
+        wb.save(out)
+        file_bytes = out.getvalue()
+        st.sidebar.success(f"Worker {new_id} added successfully!")
 
-    # Reading the data (Row 13 header)
-    df_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sel_month, skiprows=12)
-    df_raw.columns = [str(c).strip() for c in df_raw.columns]
-    
-    # Filter rows that have an Emp ID
-    df_active = df_raw[df_raw['Emp ID'].notna()].copy()
+    # --- 2. DATA PROCESSING ---
+    xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    months = [m for m in xls.sheet_names if m != "At Record"]
+    selected_month = st.selectbox("📅 Select Monthly Register", months)
 
-    with col2:
-        st.subheader(f"Register View: {sel_month} 2026")
+    # Error handling for Column Names
+    try:
+        # Aapki sheet mein Row 13 par header hai
+        df_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=selected_month, skiprows=12)
+        
+        # Cleanup: Remove spaces from column names
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+        
+        # KEYERROR FIX: Check if 'Emp ID' exists, if not, find the column that looks like it
+        id_col = 'Emp ID'
+        if id_col not in df_raw.columns:
+            # Try to find any column containing 'ID'
+            possible_cols = [c for c in df_raw.columns if 'ID' in c.upper()]
+            if possible_cols: id_col = possible_cols[0]
+
+        # Display Data
+        df_active = df_raw[df_raw[id_col].notna()].copy()
+        st.subheader(f"Attendance View: {selected_month}")
         st.dataframe(df_active, use_container_width=True, hide_index=True)
+
+    except Exception as e:
+        st.error(f"Sheet Error: Header Row 13 mein problem hai. Details: {e}")
+        df_active = pd.DataFrame()
 
     # --- 3. BULK ATTENDANCE & SHIFT LOGIC ---
     st.divider()
-    st.header(f"⚡ Monthly Attendance Operation - {sel_month}")
+    st.header(f"🚀 Operations for {selected_month}")
     
-    tab1, tab2 = st.tabs(["📋 Bulk Entry", "🔍 Individual Search"])
+    t1, t2 = st.tabs(["⚡ Bulk Attendance Update", "📊 Worker Status Checker"])
     
-    with tab1:
-        st.write("Paste employee IDs and apply status to specific dates.")
-        b_col1, b_col2, b_col3, b_col4 = st.columns([2, 1, 1, 1])
-        
-        with b_col1:
-            bulk_ids = st.text_area("Employee IDs (Paste from Excel or WhatsApp)", height=150, placeholder="T001\nT002\nT003")
-        with b_col2:
-            target_date = st.number_input("Enter Date (1-31)", 1, 31, value=1)
-            # Fetch day name for user confirmation
-            try:
-                # Column G index 6 is Day 1
-                day_name = df_raw.columns[6 + target_date - 1]
-                st.write(f"Selected Day: **{day_name}**")
-            except: pass
-        with b_col3:
-            shift_mode = st.radio("Shift Selection", ["Day Shift", "Night Shift"])
-            st.caption("Filters status options based on shift.")
-        with b_col4:
-            if shift_mode == "Day Shift":
-                status_list = ["DP", "DA", "L", "T", "WO", "ST"]
+    with t1:
+        c1, c2, c3 = st.columns([2, 1, 1])
+        with c1:
+            paste_area = st.text_area("Paste Employee IDs (Separated by space or newline)", height=150)
+        with c2:
+            date_num = st.number_input("Select Date (1-31)", 1, 31)
+            shift_opt = st.radio("Current Shift Mode", ["Day (DP/DA)", "Night (NP/NA)"])
+        with c3:
+            if "Day" in shift_opt:
+                status_val = st.selectbox("Status", ["DP", "DA", "L", "T", "WO", "ST"])
             else:
-                status_list = ["NP", "NA", "L", "T", "WO", "ST"]
-            final_status = st.selectbox("Select Status", status_list)
-
-        if st.button("🚀 Apply & Save Attendance"):
-            if not bulk_ids:
-                st.error("Please enter Employee IDs.")
-            else:
+                status_val = st.selectbox("Status", ["NP", "NA", "L", "T", "WO", "ST"])
+            
+        if st.button("Apply to Register"):
+            if paste_area:
                 wb = load_workbook(io.BytesIO(file_bytes))
-                ws = wb[sel_month]
-                id_list = [i.strip().upper() for i in bulk_ids.replace(',', '\n').split('\n') if i.strip()]
+                ws = wb[selected_month]
+                id_list = [idx.strip().upper() for idx in paste_area.replace(',', ' ').split()]
                 
-                # Logic: Column G is Day 1 (7th column)
-                col_to_update = 6 + target_date
+                # Column G (7) is Day 1
+                col_target = 6 + date_num
                 
-                updated = 0
-                for r in range(14, ws.max_row + 1):
-                    val = str(ws.cell(row=r, column=2).value).strip().upper()
-                    if val in id_list:
-                        ws.cell(row=r, column=col_to_update).value = final_status
-                        # Visual feedback color
-                        ws.cell(row=r, column=col_to_update).fill = PatternFill(start_color="CCFFCC", fill_type="solid")
-                        updated += 1
+                count = 0
+                for row_idx in range(15, ws.max_row + 1):
+                    cell_val = str(ws.cell(row=row_idx, column=2).value).strip().upper()
+                    if cell_val in id_list:
+                        ws.cell(row=row_idx, column=col_target).value = status_val
+                        # Highlight cell
+                        ws.cell(row=row_idx, column=col_target).fill = PatternFill(start_color="B7E1CD", fill_type="solid")
+                        count += 1
                 
                 out = io.BytesIO()
                 wb.save(out)
                 file_bytes = out.getvalue()
-                st.success(f"Success! {updated} records updated for Day {target_date} in {sel_month}.")
+                st.success(f"Updated {count} records successfully!")
                 st.rerun()
 
-    with tab2:
-        # Search feature for quick checks
-        search_query = st.text_input("Search Worker by ID or Name")
-        if search_query:
-            search_results = df_active[df_active.apply(lambda row: search_query.lower() in str(row).lower(), axis=1)]
-            st.table(search_results[['Srl No', 'Emp ID', 'Emp Name', 'Designation', 'Department']])
+    with t2:
+        if not df_active.empty:
+            # Base Status (Shift) Check (Assuming column 38/AL holds shift)
+            st.write("Base Status is managed in the Master Excel (Column AL).")
+            search = st.text_input("Quick Search (Name/ID)")
+            if search:
+                res = df_active[df_active.apply(lambda r: search.lower() in str(r).lower(), axis=1)]
+                st.dataframe(res)
 
-    # --- 4. EXPORT ---
+    # --- 4. DOWNLOAD ---
     st.divider()
     st.download_button(
-        label="📥 DOWNLOAD UPDATED SAFETECH MASTER FILE",
-        data=file_bytes,
-        file_name=f"SafeTech_Master_Attendance_Final_{datetime.now().strftime('%d_%m')}.xlsx",
+        "📥 Download Updated SafeTech Master",
+        file_bytes,
+        file_name=f"SafeTech_Attendance_Final.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
 else:
-    st.markdown("""
-        <div style='text-align:center; padding: 50px; border: 2px dashed #1E3A8A; border-radius:15px;'>
-            <h3>Bhai, Master Attendance File Upload Kariye</h3>
-            <p>Code automatically Row 13 headers aur har month ki sheets ko detect kar lega.</p>
-        </div>
-        """, unsafe_allow_html=True)
+    st.info("Bhai, SafeTech Master Attendance file upload kijiye.")
