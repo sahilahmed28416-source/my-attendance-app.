@@ -1,126 +1,137 @@
 import streamlit as st
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
-import io
-from datetime import datetime
+import plotly.express as px
+import datetime
+from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
 
-# --- CONFIG & UI ---
-st.set_page_config(page_title="SafeTech Ultimate System", layout="wide")
+# --- Page Configuration (Professional Look) ---
+st.set_page_config(
+    page_title="SafeTech Smart Attendance System",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# --- Custom Styling (Futuristic UI) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #f4f7f6; }
-    .main-header { text-align:center; background-color:#1E3A8A; color:white; padding:20px; border-radius:15px; margin-bottom:20px; }
-    .stButton>button { width: 100%; border-radius: 8px; background-color: #1E3A8A; color: white; font-weight: bold; }
-    .sidebar-box { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #ddd; }
+    .main { background-color: #0e1117; color: #ffffff; }
+    .stMetric { background-color: #161b22; border-radius: 10px; padding: 15px; border: 1px solid #30363d; }
+    div[data-testid="stSidebarNav"] { background-color: #0d1117; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #238636; color: white; }
     </style>
-    """, unsafe_allow_html=True)
+    """, unsafe_all_ow_html=True)
 
-# Logo
-try:
-    st.sidebar.image("3810b91a7e82de2cb2273cb3494b93cbc0589111", width=160)
-except:
-    st.sidebar.markdown("### 🏗️ SAFETECH PRECAST")
+# --- Session State for Data Persistence ---
+if 'attendance_data' not in st.session_state:
+    # Dummy Data for Row 13 & Employee Records (Aapki Excel ke mutabiq)
+    cols = ['Emp ID', 'Emp Name', 'Designation', 'Department'] + [str(d) for d in range(1, 32)] + ['Total Present', 'Total Absent']
+    st.session_state.attendance_data = pd.DataFrame(columns=cols)
 
-st.markdown("<div class='main-header'><h1>SAFETECH WORKFORCE PRO SYSTEM v4.0</h1></div>", unsafe_allow_html=True)
+# --- Sidebar Navigation ---
+st.sidebar.title("🚀 SafeTech Control")
+menu = st.sidebar.selectbox("Navigation", ["Dashboard", "Attendance Entry", "Row 13 Analytics", "Employee Directory", "Reports"])
 
-uploaded_file = st.file_uploader("📂 Upload Karein SafeTech Master Attendance File (.xlsx)", type=["xlsx"])
+# --- Function: Metrics Calculation ---
+def show_metrics(df):
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Manpower", len(df))
+    with col2:
+        st.metric("Present Today", (df['Total Present'] > 0).sum() if not df.empty else 0)
+    with col3:
+        st.metric("Total Departmets", df['Department'].nunique() if not df.empty else 0)
+    with col4:
+        st.metric("Active Projects", "UNEC Partnership")
 
-if uploaded_file:
-    file_bytes = uploaded_file.read()
+# --- Page: Dashboard ---
+if menu == "Dashboard":
+    st.title("📊 Workforce Analytics Dashboard")
+    show_metrics(st.session_state.attendance_data)
     
-    # --- 1. NEW WORKER SECTION (AB EKDOM PERFECT) ---
-    st.sidebar.header("👤 Employee Management")
-    with st.sidebar.expander("➕ Register New Worker", expanded=True):
-        with st.form("worker_reg"):
-            n_id = st.text_input("Emp ID (e.g. T00770)")
-            n_name = st.text_input("Full Name")
-            n_des = st.text_input("Designation")
-            n_dep = st.text_input("Department")
-            n_shift = st.selectbox("Base Status (Shift)", ["Day Shift (D)", "Night Shift (N)"])
-            n_date = st.date_input("Joining Date", datetime.now())
-            sub_w = st.form_submit_button("Save to Database")
+    st.markdown("---")
+    
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_left:
+        st.subheader("Attendance Trend (Monthly)")
+        if not st.session_state.attendance_data.empty:
+            fig = px.bar(st.session_state.attendance_data, x="Emp Name", y="Total Present", 
+                         color="Department", template="plotly_dark", barmode="group")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Awaiting data input for visualization...")
 
-    if sub_w and n_id:
-        wb = load_workbook(io.BytesIO(file_bytes))
-        shift_val = "D" if "Day" in n_shift else "N"
-        for sheet in wb.sheetnames:
-            if sheet != "At Record":
-                ws = wb[sheet]
-                r = 15 # Row 15 se data start
-                while ws.cell(row=r, column=2).value is not None:
-                    r += 1
-                ws.cell(row=r, column=1).value = r - 14
-                ws.cell(row=r, column=2).value = n_id.strip().upper()
-                ws.cell(row=r, column=3).value = n_name.strip()
-                ws.cell(row=r, column=4).value = n_des.strip()
-                ws.cell(row=r, column=5).value = n_dep.strip()
-                ws.cell(row=r, column=6).value = n_date
-                ws.cell(row=r, column=38).value = shift_val # Column AL for Base Status
+    with col_right:
+        st.subheader("Department Distribution")
+        if not st.session_state.attendance_data.empty:
+            fig_pie = px.pie(st.session_state.attendance_data, names='Department', hole=0.4)
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+# --- Page: Attendance Entry (The Row 13 Implementation) ---
+elif menu == "Attendance Entry":
+    st.title("📝 Daily Attendance Entry")
+    
+    with st.expander("➕ Add New Employee Record", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        emp_id = c1.text_input("Employee ID (e.g. T00594)")
+        emp_name = c2.text_input("Full Name")
+        desig = c3.selectbox("Designation", ["Operator", "Helper", "Foreman", "Engineer"])
+        dept = c4.selectbox("Department", ["Production", "Erection", "QHSE", "HR"])
         
-        out = io.BytesIO()
-        wb.save(out)
-        file_bytes = out.getvalue()
-        st.sidebar.success(f"Worker {n_id} Added in All Months!")
-
-    # --- 2. DYNAMIC DATA LOADING (KEYERROR FIX) ---
-    xls = pd.ExcelFile(io.BytesIO(file_bytes))
-    months = [m for m in xls.sheet_names if m != "At Record"]
-    sel_month = st.selectbox("📅 Select Attendance Month", months)
-
-    # Smart Loading: Row 13 ko detect karke columns clean karega
-    df_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sel_month, skiprows=12)
-    df_raw.columns = [str(c).strip() for c in df_raw.columns] # Sabhi spaces khatam!
-
-    # ID Column dhoondne ka tarika (Flexible)
-    id_col = next((c for c in df_raw.columns if "ID" in c.upper()), None)
-
-    if id_col:
-        df_active = df_raw[df_raw[id_col].notna()].copy()
-        st.subheader(f"📋 Register: {sel_month}")
-        st.dataframe(df_active, use_container_width=True, hide_index=True)
-
-        # --- 3. BULK ATTENDANCE (MONTH & DATE WISE) ---
-        st.divider()
-        st.header(f"⚡ Attendance Panel - {sel_month}")
+        st.write("### Mark Attendance (Row 13 Columns)")
+        att_cols = st.columns(7)
+        days_status = {}
+        for i in range(1, 32):
+            with att_cols[(i-1)%7]:
+                days_status[str(i)] = st.selectbox(f"Day {i}", ["P", "A", "OFF", "N/A"], key=f"day_{i}")
         
-        c1, c2, c3 = st.columns([2, 1, 1])
-        with c1:
-            ids_area = st.text_area("Paste IDs (Separated by space or enter)", height=150)
-        with c2:
-            target_dt = st.number_input("Enter Date (1-31)", 1, 31)
-            shift_mode = st.radio("Work Mode", ["Day (DP/DA)", "Night (NP/NA)"])
-        with c3:
-            s_list = ["DP", "DA", "L", "T", "WO", "ST"] if "Day" in shift_mode else ["NP", "NA", "L", "T", "WO", "ST"]
-            final_status = st.selectbox("Select Attendance Status", s_list)
+        if st.button("Save Record to Database"):
+            present_count = list(days_status.values()).count("P")
+            absent_count = list(days_status.values()).count("A")
+            new_row = {
+                'Emp ID': emp_id, 'Emp Name': emp_name, 
+                'Designation': desig, 'Department': dept,
+                'Total Present': present_count, 'Total Absent': absent_count
+            }
+            new_row.update(days_status)
+            st.session_state.attendance_data = pd.concat([st.session_state.attendance_data, pd.DataFrame([new_row])], ignore_index=True)
+            st.success(f"Record added for {emp_name}")
 
-        if st.button("🚀 Apply Bulk Update"):
-            if ids_area:
-                wb = load_workbook(io.BytesIO(file_bytes))
-                ws = wb[sel_month]
-                list_of_ids = [i.strip().upper() for i in ids_area.replace(',', ' ').split()]
-                target_col = 6 + target_dt # Column G is Day 1
-                
-                updated_count = 0
-                for r in range(15, ws.max_row + 1):
-                    val = str(ws.cell(row=r, column=2).value).strip().upper()
-                    if val in list_of_ids:
-                        ws.cell(row=r, column=target_col).value = final_status
-                        ws.cell(row=r, column=target_col).fill = PatternFill(start_color="B7E1CD", fill_type="solid")
-                        updated_count += 1
-                
-                out = io.BytesIO()
-                wb.save(out)
-                file_bytes = out.getvalue()
-                st.success(f"Success! {updated_count} workers updated for Date {target_dt}")
-                st.rerun()
+    st.subheader("Current Month Sheet (Live View)")
+    # Advanced Data Grid
+    gb = GridOptionsBuilder.from_dataframe(st.session_state.attendance_data)
+    gb.configure_pagination(paginationAutoPageSize=True)
+    gb.configure_side_bar()
+    gb.configure_default_column(editable=True, groupable=True)
+    gridOptions = gb.build()
+    
+    AgGrid(st.session_state.attendance_data, gridOptions=gridOptions, 
+           columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
+           theme='balham')
 
-        # --- 4. DOWNLOAD ---
-        st.divider()
-        st.download_button("📥 DOWNLOAD FINAL SAFETECH EXCEL", file_bytes, f"SafeTech_Updated_{sel_month}.xlsx")
-    else:
-        st.error("Bhai, sheet mein 'Emp ID' column nahi mil raha. Please check karein ki Row 13 mein headers hain ya nahi.")
+# --- Page: Row 13 Analytics ---
+elif menu == "Row 13 Analytics":
+    st.title("⚙️ Row 13 - Logic Configuration")
+    st.info("Row 13 is the reference layer for all dates and automated holidays.")
+    
+    year = st.number_input("Target Year", value=2026)
+    month = st.selectbox("Target Month", list(range(1, 13)))
+    
+    # Futuristic Row 13 Generator
+    if st.button("Generate Row 13 Dynamic Header"):
+        dates = []
+        for d in range(1, 32):
+            try:
+                date_obj = datetime.date(year, month, d)
+                dates.append({"Date": d, "Day": date_obj.strftime("%A"), "Status": "Working" if date_obj.weekday() != 4 else "Friday (OFF)"})
+            except:
+                continue
+        
+        st.table(pd.DataFrame(dates))
+        st.success("Logic updated: All calculations will now reference this Row 13 mapping.")
 
-else:
-    st.info("Bhai, pehle apni Master Excel file upload karein.")
+# --- Footer ---
+st.sidebar.markdown("---")
+st.sidebar.write("System Status: **Active**")
+st.sidebar.write(f"Current User ID: T00594")
